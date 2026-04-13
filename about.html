@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AKM Web Server — About</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>AKM Web Server</h1>
+    <nav>
+      <a href="index.html">Home</a>
+      <a href="about.html">About</a>
+    </nav>
+  </header>
+
+  <main>
+    <h2>About This Project</h2>
+    <p>This project was built as part of CMPS 242 — Computer Networks at the American University of Beirut (AUB).</p>
+
+    <h3>How It Works</h3>
+    <p>The server is implemented in a single Java file (<code>WebServer.java</code>) containing two classes:</p>
+    <ul>
+      <li><strong>WebServer</strong> — binds a <code>ServerSocket</code> to port 6789 and accepts client connections in a loop.</li>
+      <li><strong>HttpRequest</strong> — parses one HTTP GET request, locates the file, and sends back a complete HTTP/1.0 response.</li>
+    </ul>
+
+    <h3>Multithreading</h3>
+    <p>Each accepted connection is wrapped in an <code>HttpRequest</code> object and started in a new <code>Thread</code>, so multiple clients can be served simultaneously without one blocking another.</p>
+
+    <h3>Team</h3>
+    <p>Developed by <strong>AKM Group</strong>.</p>
+  </main>
+
+  <footer>
+    <p>AKM Group &mdash; CMPS 242, AUB</p>
+  </footer>
+</body>
+</html>
