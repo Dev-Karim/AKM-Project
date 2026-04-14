@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>AKM Web Server — Home</title>
+  <link rel="icon" type="image/png" href="favicon.png">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -19,16 +20,21 @@
     <h2>Welcome</h2>
     <p>This page is being served by a custom multithreaded HTTP web server written in Java for CMPS 242 — Computer Networks at AUB.</p>
     <p>The server handles each browser request in its own thread, supports multiple file types, and returns proper HTTP/1.0 responses.</p>
+    <img src="image.svg" alt="Sample server illustration" width="320">
     <ul>
       <li>Multithreaded request handling</li>
       <li>HTTP/1.0 GET support</li>
       <li>MIME type detection</li>
-      <li>404 Not Found error pages</li>
+      <li>400, 404, and 500 error pages</li>
     </ul>
+    <p><a href="about.html">About Page</a></p>
+    <p><a href="test.pdf">Open PDF</a></p>
+    <p><a href="script.js">Open JavaScript File</a></p>
   </main>
 
   <footer>
     <p>AKM Group &mdash; CMPS 242, AUB</p>
   </footer>
+  <script src="script.js"></script>
 </body>
 </html>

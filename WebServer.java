@@ -60,7 +60,10 @@ class HttpRequest implements Runnable
     // processRequest() and catches any exception so the thread exits cleanly.
     public void run()
     {
-        try { processRequest(); }
+        try
+        {
+            processRequest();
+        }
         catch (Exception e)
         {
             System.out.println(e);
@@ -77,95 +80,154 @@ class HttpRequest implements Runnable
 
         // Set up input stream filters so we can read text lines from the client.
         BufferedReader br = new BufferedReader(new InputStreamReader(is));
-
-        // Get the request line of the HTTP request message (e.g. GET /index.html HTTP/1.0).
-        String requestLine = br.readLine();
-
-        // Display the request line.
-        System.out.println();
-        System.out.println(requestLine);
-
-        // Get and display the header lines until the blank line that ends the headers.
-        String headerLine = null;
-        while ((headerLine = br.readLine()) != null && !headerLine.isEmpty())
-        {
-            System.out.println(headerLine);
-        }
-
-        // Extract the filename from the request line using StringTokenizer.
-        StringTokenizer tokens = new StringTokenizer(requestLine);
-        tokens.nextToken();                // skip over the method, which should be "GET"
-        String fileName = tokens.nextToken(); // extract the requested URI
-
-        // Prepend a "." so that the file request is resolved within the current directory.
-        // e.g. "/index.html" becomes "./index.html"
-        fileName = "." + fileName;
-
-        // If the client requested the root "/", serve index.html as the default document.
-        if (fileName.equals("./"))
-        {
-            fileName = "./index.html";
-        }
-
-        // Open the requested file. If it does not exist, set fileExists to false
-        // so we can send a 404 error response instead of crashing the thread.
         FileInputStream fis = null;
-        boolean fileExists = true;
 
         try
         {
-            fis = new FileInputStream(fileName);
-        }
-        catch (FileNotFoundException e)
-        {
-            fileExists = false;
-        }
+            // Get the request line of the HTTP request message (e.g. GET /index.html HTTP/1.0).
+            String requestLine = br.readLine();
 
-        // Construct the response message.
-        String statusLine      = null;
-        String contentTypeLine = null;
-        String entityBody      = null;
+            // Display the request line.
+            System.out.println();
+            System.out.println(requestLine);
 
-        if (fileExists)
-        {
-            // File found: send 200 OK with the correct MIME type.
-            statusLine      = "HTTP/1.0 200 OK" + CRLF;
-            contentTypeLine = "Content-type: " + contentType(fileName) + CRLF;
-        }
-        else
-        {
-            // File not found: send 404 Not Found with a small HTML error page.
-            statusLine      = "HTTP/1.0 404 Not Found" + CRLF;
-            contentTypeLine = "Content-type: text/html" + CRLF;
-            entityBody      = "<HTML>" +
-                              "<HEAD><TITLE>Not Found</TITLE></HEAD>" +
-                              "<BODY>Not Found</BODY></HTML>";
-        }
+            if (requestLine == null || requestLine.trim().isEmpty())
+            {
+                send400(os);
+                return;
+            }
 
-        // Send the status line.
+            // Get and display the header lines until the blank line that ends the headers.
+            String headerLine = null;
+            while ((headerLine = br.readLine()) != null && !headerLine.isEmpty())
+            {
+                System.out.println(headerLine);
+            }
+
+            // Extract the filename from the request line using StringTokenizer.
+            StringTokenizer tokens = new StringTokenizer(requestLine);
+            if (tokens.countTokens() < 3)
+            {
+                send400(os);
+                return;
+            }
+
+            String method = tokens.nextToken();
+            String fileName = tokens.nextToken();
+
+            if (!method.equals("GET"))
+            {
+                send400(os);
+                return;
+            }
+
+            // Prepend a "." so that the file request is resolved within the current directory.
+            // e.g. "/index.html" becomes "./index.html"
+            fileName = "." + fileName;
+
+            // If the client requested the root "/", serve index.html as the default document.
+            if (fileName.equals("./"))
+            {
+                fileName = "./index.html";
+            }
+
+            // Open the requested file. If it does not exist, set fileExists to false
+            // so we can send a 404 error response instead of crashing the thread.
+            boolean fileExists = true;
+
+            try
+            {
+                fis = new FileInputStream(fileName);
+            }
+            catch (FileNotFoundException e)
+            {
+                fileExists = false;
+            }
+
+            // Construct the response message.
+            String statusLine      = null;
+            String contentTypeLine = null;
+            String entityBody      = null;
+
+            if (fileExists)
+            {
+                // File found: send 200 OK with the correct MIME type.
+                statusLine      = "HTTP/1.0 200 OK" + CRLF;
+                contentTypeLine = "Content-type: " + contentType(fileName) + CRLF;
+            }
+            else
+            {
+                // File not found: send 404 Not Found with a small HTML error page.
+                statusLine      = "HTTP/1.0 404 Not Found" + CRLF;
+                contentTypeLine = "Content-Type: text/html" + CRLF;
+                entityBody      = "<HTML><HEAD><TITLE>Not Found</TITLE></HEAD>" +
+                                  "<BODY><h1>404 Not Found</h1>" +
+                                  "<p>The requested file was not found.</p></BODY></HTML>";
+            }
+
+            // Send the status line.
+            os.writeBytes(statusLine);
+
+            // Send the content type line.
+            os.writeBytes(contentTypeLine);
+
+            // Send a blank line to indicate the end of the header lines.
+            os.writeBytes(CRLF);
+
+            // Send the entity body: the file bytes if found, or the error HTML if not.
+            if (fileExists)
+            {
+                sendBytes(fis, os);
+            }
+            else
+            {
+                os.writeBytes(entityBody);
+            }
+        }
+        catch (Exception e)
+        {
+            System.out.println(e);
+            send500(os);
+        }
+        finally
+        {
+            if (fis != null)
+            {
+                fis.close();
+            }
+            os.close();
+            br.close();
+            socket.close();
+        }
+    }
+
+    private void send400(DataOutputStream os) throws Exception
+    {
+        String statusLine = "HTTP/1.1 400 Bad Request" + CRLF;
+        String contentTypeLine = "Content-Type: text/html" + CRLF;
+        String entityBody =
+            "<HTML><HEAD><TITLE>400 Bad Request</TITLE></HEAD>" +
+            "<BODY><h1>400 Bad Request</h1><p>Invalid request.</p></BODY></HTML>";
+
         os.writeBytes(statusLine);
-
-        // Send the content type line.
         os.writeBytes(contentTypeLine);
-
-        // Send a blank line to indicate the end of the header lines.
         os.writeBytes(CRLF);
+        os.writeBytes(entityBody);
+    }
 
-        // Send the entity body: the file bytes if found, or the error HTML if not.
-        if (fileExists)
-        {
-            sendBytes(fis, os);
-            fis.close();
-        }
-        else
-        {
-            os.writeBytes(entityBody);
-        }
+    private void send500(DataOutputStream os) throws Exception
+    {
+        String statusLine = "HTTP/1.1 500 Internal Server Error" + CRLF;
+        String contentTypeLine = "Content-Type: text/html" + CRLF;
+        String entityBody =
+            "<HTML><HEAD><TITLE>500 Internal Server Error</TITLE></HEAD>" +
+            "<BODY><h1>500 Internal Server Error</h1>" +
+            "<p>Unexpected server error.</p></BODY></HTML>";
 
-        // Close streams and socket (non-persistent: one request per connection).
-        os.close();
-        br.close();
-        socket.close();
+        os.writeBytes(statusLine);
+        os.writeBytes(contentTypeLine);
+        os.writeBytes(CRLF);
+        os.writeBytes(entityBody);
     }
 
     // sendBytes copies the file contents into the socket's output stream
@@ -191,6 +253,14 @@ class HttpRequest implements Runnable
         {
             return "text/html";
         }
+        if (fileName.endsWith(".css"))
+        {
+            return "text/css";
+        }
+        if (fileName.endsWith(".js"))
+        {
+            return "application/javascript";
+        }
         if (fileName.endsWith(".jpg") || fileName.endsWith(".jpeg"))
         {
             return "image/jpeg";
@@ -203,17 +273,17 @@ class HttpRequest implements Runnable
         {
             return "image/png";
         }
-        if (fileName.endsWith(".css"))
+        if (fileName.endsWith(".svg"))
         {
-            return "text/css";
-        }
-        if (fileName.endsWith(".js"))
-        {
-            return "application/javascript";
+            return "image/svg+xml";
         }
         if (fileName.endsWith(".pdf"))
         {
             return "application/pdf";
+        }
+        if (fileName.endsWith(".mp4"))
+        {
+            return "video/mp4";
         }
         if (fileName.endsWith(".ico"))
         {
