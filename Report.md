@@ -168,13 +168,13 @@ Navigating to `http://localhost:6789/notfound.html` causes the server to return 
 
 ---
 
-## Phase 2 — Reliable UDP File Transfer (RUDPDestination)
+## Phase 3 — Reliable UDP File Transfer (RUDPDestination)
 
 ---
 
-## 8. Phase 2 Solution Overview
+## 8. Phase 3 Solution Overview
 
-Phase 2 extends the project to implement a reliable file-transfer protocol layered on top of UDP, mimicking core TCP behaviour (acknowledgements, retransmission on timeout, duplicate suppression) without using TCP itself.
+Phase 3 extends the project to implement a reliable file-transfer protocol layered on top of UDP, mimicking core TCP behaviour (acknowledgements, retransmission on timeout, duplicate suppression) without using TCP itself.
 
 ### 8.1 Protocol Design
 
@@ -202,7 +202,7 @@ Three packet types structure the exchange:
 **Phase 1 — Filename handshake.**  
 The server blocks on `socket.receive()` ignoring all non-FILENAME packets until the client identifies itself. Once the filename arrives, an ACK is sent and the output filename is derived by inserting `-copy` before the extension (e.g., `report.pdf` → `report-copy.pdf`).
 
-**Phase 2 — Ordered data reception.**  
+**Phase 3 — Ordered data reception.**  
 A `nextExpectedOffset` counter tracks contiguous bytes received. For every DATA packet:
 - `offset == nextExpectedOffset` → chunk is written to `FileOutputStream`, counter advances, `OK` is printed, ACK is sent.
 - `offset < nextExpectedOffset` → duplicate (ACK was lost and the source retransmitted); `DISCARDED` is printed and an ACK is still sent so the source can advance.
@@ -221,7 +221,7 @@ Sending an ACK for a duplicate is intentional and critical. If the destination r
 
 ### 9.1 AI-Generated Solution (ChatGPT 4o)
 
-ChatGPT was prompted with the full Phase 2 requirements and asked to produce a `RUDPDestination.java`. The resulting code used the following approach:
+ChatGPT was prompted with the full Phase 3 requirements and asked to produce a `RUDPDestination.java`. The resulting code used the following approach:
 
 - **Packet format:** a text-based header (`"SEQ:<n>|LEN:<n>|TYPE:<str>|"`) prepended to a raw byte array, parsed with `String.split`.
 - **File assembly:** a `TreeMap<Integer, byte[]>` keyed on sequence number to buffer all chunks before writing.
@@ -269,13 +269,13 @@ Two ideas from the AI solution were evaluated and one was adapted:
 The AI's solution printed how many total bytes the server expected to receive. We incorporated this by storing the total byte count in the `offset` field of the END packet and comparing it to `nextExpectedOffset` at the destination. This surfaces silent data loss ("received 4096 bytes but expected 4100") that would otherwise go unnoticed.
 
 **Idea considered but rejected — `TreeMap` buffering.**  
-Buffering all chunks before writing is correct for sliding-window receivers. For the current stop-and-wait design it is unnecessary overhead. The `TreeMap` approach will be revisited if Phase 2 is extended to Go-Back-N.
+Buffering all chunks before writing is correct for sliding-window receivers. For the current stop-and-wait design it is unnecessary overhead. The `TreeMap` approach will be revisited if Phase 3 is extended to Go-Back-N.
 
 The concrete improvement — the byte-count verification in the END packet — is visible in `RUDPDestination.java` lines where `totalBytes` is extracted from `offset` and logged against `nextExpectedOffset`.
 
 ---
 
-## 10. Phase 2 References
+## 10. Phase 3 References
 
 1. Kurose, J. F., & Ross, K. W. (2021). *Computer Networking: A Top-Down Approach* (8th ed.). Pearson. — Chapter 3, "Building a Reliable Data Transfer Protocol" (rdt 2.x, rdt 3.0, stop-and-wait).
 
