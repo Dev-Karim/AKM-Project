@@ -165,3 +165,120 @@ Navigating to `http://localhost:6789/notfound.html` causes the server to return 
 4. Mozilla Developer Network. (2024). *HTTP Messages*. MDN Web Docs. Retrieved from https://developer.mozilla.org/en-US/docs/Web/HTTP/Messages
 
 5. Eckel, B. (2006). *Thinking in Java* (4th ed.). Prentice Hall. — Chapter on networking and multithreading.
+
+---
+
+## Phase 3 — Reliable UDP File Transfer (RUDPDestination)
+
+---
+
+## 8. Phase 3 Solution Overview
+
+Phase 3 extends the project to implement a reliable file-transfer protocol layered on top of UDP, mimicking core TCP behaviour (acknowledgements, retransmission on timeout, duplicate suppression) without using TCP itself.
+
+### 8.1 Protocol Design
+
+A custom 9-byte binary header precedes every payload:
+
+```
+Byte  0      : packet type  (1 = FILENAME | 2 = DATA | 3 = END)
+Bytes 1–4    : offset       (big-endian int — start byte or total size for END)
+Bytes 5–8    : length       (big-endian int — payload byte count)
+Bytes 9+     : payload      (UTF-8 filename string, or raw file bytes)
+```
+
+ACK packets use the same 9-byte format with no payload; the type and offset fields are echoed so the sender knows exactly which packet is being acknowledged.
+
+Three packet types structure the exchange:
+
+1. **FILENAME** — the source sends the filename first; the destination ACKs before any data flows.
+2. **DATA** — one chunk per stop-and-wait round trip; the offset field is the byte position within the file.
+3. **END** — signals completion; the offset field carries the total byte count so the destination can verify integrity.
+
+### 8.2 RUDPDestination Logic
+
+`RUDPDestination` runs an outer `while(true)` loop so the server stays alive across multiple file transfers. For each transfer it follows three phases:
+
+**Phase 1 — Filename handshake.**  
+The server blocks on `socket.receive()` ignoring all non-FILENAME packets until the client identifies itself. Once the filename arrives, an ACK is sent and the output filename is derived by inserting `-copy` before the extension (e.g., `report.pdf` → `report-copy.pdf`).
+
+**Phase 3 — Ordered data reception.**  
+A `nextExpectedOffset` counter tracks contiguous bytes received. For every DATA packet:
+- `offset == nextExpectedOffset` → chunk is written to `FileOutputStream`, counter advances, `OK` is printed, ACK is sent.
+- `offset < nextExpectedOffset` → duplicate (ACK was lost and the source retransmitted); `DISCARDED` is printed and an ACK is still sent so the source can advance.
+- `offset > nextExpectedOffset` → gap that cannot occur in stop-and-wait; silently discarded.
+
+**Phase 3 — END handshake.**  
+On receiving `TYPE_END`, the server ACKs, closes the file, and prints `[COMPLETE]`.
+
+### 8.3 Duplicate-ACK Strategy
+
+Sending an ACK for a duplicate is intentional and critical. If the destination remained silent on duplicates, the source's retransmission timer would fire repeatedly, never advancing. By re-ACKing duplicates the destination lets the source know it can move forward.
+
+---
+
+## 9. AI Comparison — RUDPDestination
+
+### 9.1 AI-Generated Solution (ChatGPT 4o)
+
+ChatGPT was prompted with the full Phase 3 requirements and asked to produce a `RUDPDestination.java`. The resulting code used the following approach:
+
+- **Packet format:** a text-based header (`"SEQ:<n>|LEN:<n>|TYPE:<str>|"`) prepended to a raw byte array, parsed with `String.split`.
+- **File assembly:** a `TreeMap<Integer, byte[]>` keyed on sequence number to buffer all chunks before writing.
+- **Duplicate detection:** checking whether the sequence number already existed in the `TreeMap`.
+- **Termination:** a special packet whose payload was the ASCII string `"END"`.
+- **ACK format:** a short UTF-8 string `"ACK:<seqNum>"` sent back.
+
+The AI solution compiled and ran, but had several issues described below.
+
+### 9.2 Side-by-Side Comparison
+
+| Dimension | Our Implementation | AI-Generated Implementation |
+|---|---|---|
+| **Header format** | Fixed 9-byte binary (1 type + 4 offset + 4 length) | Variable-length ASCII text header (`"SEQ:…\|LEN:…\|TYPE:…\|"`) |
+| **Offset semantics** | Byte offset into the file — naturally handles any chunk size | Packet sequence number — requires client and server to agree on chunk size to reconstruct file correctly |
+| **Duplicate handling** | Re-ACKs duplicate; writes only in-order chunks | Inserts duplicate into `TreeMap` (overwrite); no re-ACK sent for duplicates |
+| **File assembly** | Streams directly to `FileOutputStream` as chunks arrive in order | Buffers *all* chunks in `TreeMap` in RAM, then writes entire file at end |
+| **END signal** | Dedicated `TYPE_END = 3` byte; offset field carries total byte count for verification | ASCII string `"END"` in payload; no integrity check |
+| **ACK format** | 9-byte binary mirroring request header | Variable-length ASCII string `"ACK:<seq>"` |
+| **Multiple transfers** | Outer `while(true)` loop; server persists across sessions | Server exits after one file |
+| **Output filename** | `buildCopyName()` — inserts `-copy` before extension | Simply appends `-copy` after the full filename including extension (`report.pdf-copy`) |
+| **Error robustness** | Skips malformed packets (`pktLen < HEADER_SIZE`) | No length guard — `String.split` on a binary payload throws `ArrayIndexOutOfBoundsException` on non-text data |
+| **Binary file support** | `FileOutputStream` with raw byte array — safe for any file type | Mixes text parsing (`new String(data)`) with binary write — corrupts non-UTF-8 files (images, PDFs) |
+
+### 9.3 Pros and Cons of the AI Solution
+
+**Pros:**
+- Produced a working skeleton very quickly (~10 seconds).
+- The `TreeMap` buffering idea is correct for a *sliding-window* protocol, where packets can arrive out of order — a useful concept to adopt if we later extend to Go-Back-N or Selective Repeat.
+- The ASCII ACK format (`"ACK:<seq>"`) is human-readable and easy to debug without a packet inspector.
+
+**Cons:**
+- The text-based header breaks on binary file payloads because arbitrary bytes are not valid UTF-8. Any image or PDF would be corrupted.
+- Using a sequence number instead of a byte offset makes reassembly dependent on the chunk size being fixed and equal on both sides — fragile if either side changes its buffer size.
+- Not re-ACKing duplicates stalls the sender: after a lost ACK, the sender retransmits and the destination silently discards, so the sender times out and retransmits indefinitely.
+- The `TreeMap` buffers the entire file in memory. For large files this causes an `OutOfMemoryError`.
+- The server exits after one transfer, requiring a manual restart between files.
+- The filename is saved as `<name>-copy` even when the original has an extension (e.g., `photo.jpg-copy` instead of `photo-copy.jpg`), making the file unrecognisable to the OS.
+
+### 9.4 Improvements Applied from AI Review
+
+Two ideas from the AI solution were evaluated and one was adapted:
+
+**Idea adopted — explicit END integrity check.**  
+The AI's solution printed how many total bytes the server expected to receive. We incorporated this by storing the total byte count in the `offset` field of the END packet and comparing it to `nextExpectedOffset` at the destination. This surfaces silent data loss ("received 4096 bytes but expected 4100") that would otherwise go unnoticed.
+
+**Idea considered but rejected — `TreeMap` buffering.**  
+Buffering all chunks before writing is correct for sliding-window receivers. For the current stop-and-wait design it is unnecessary overhead. The `TreeMap` approach will be revisited if Phase 3 is extended to Go-Back-N.
+
+The concrete improvement — the byte-count verification in the END packet — is visible in `RUDPDestination.java` lines where `totalBytes` is extracted from `offset` and logged against `nextExpectedOffset`.
+
+---
+
+## 10. Phase 3 References
+
+1. Kurose, J. F., & Ross, K. W. (2021). *Computer Networking: A Top-Down Approach* (8th ed.). Pearson. — Chapter 3, "Building a Reliable Data Transfer Protocol" (rdt 2.x, rdt 3.0, stop-and-wait).
+
+2. Oracle Corporation. (2024). *Java SE 21 API Documentation* — `DatagramSocket`, `DatagramPacket`, `ByteBuffer`, `FileOutputStream`.
+
+3. OpenAI. (2025). *ChatGPT 4o* [Large language model]. Used to generate an alternative `RUDPDestination.java` for comparison purposes as required by the assignment grading rubric. The AI-generated code was reviewed, not copied; see Section 9 for the full analysis.
