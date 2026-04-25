@@ -190,77 +190,78 @@ public class RUDPSource
 
     static void printUsage()
     {
-        System.err.println("Usage: java RUDPSource -f <filePath> -h <channelHost> -p <channelPort>");
-        System.err.println("       [-chunk <bytes>] [-timeout <milliseconds>]");
+        System.err.println("Usage: java RUDPSource -r <recvHost>:<recvPort> -f <fileName>");
     }
 
     static final class Config
     {
-        final String filePath;
-        final String host;
-        final int port;
-        final int chunkSize;
-        final int timeoutMs;
+    final String filePath;
+    final String host;
+    final int port;
+    final int chunkSize;
+    final int timeoutMs;
 
-        Config(String filePath, String host, int port, int chunkSize, int timeoutMs)
+    Config(String filePath, String host, int port, int chunkSize, int timeoutMs)
+    {
+        this.filePath = filePath;
+        this.host = host;
+        this.port = port;
+        this.chunkSize = chunkSize;
+        this.timeoutMs = timeoutMs;
+    }
+
+    static Config parse(String[] args)
+    {
+        String filePath = null;
+        String host = null;
+        Integer port = null;
+        int chunkSize =1024;
+        int timeoutMs = 500;
+
+        for(int i = 0; i<args.length; i++)
         {
-            this.filePath = filePath;
-            this.host = host;
-            this.port = port;
-            this.chunkSize = chunkSize;
-            this.timeoutMs = timeoutMs;
-        }
-
-        static Config parse(String[] args)
-        {
-            String filePath = null;
-            String host = null;
-            Integer port = null;
-            int chunkSize = 1024;
-            int timeoutMs = 500;
-
-            for (int i = 0; i < args.length; i++)
+            String arg = args[i];
+            try
             {
-                String arg = args[i];
-                try
+                if("-r".equals(arg) && i + 1 < args.length)
                 {
-                    if ("-f".equals(arg) && i + 1 < args.length)
-                    {
-                        filePath = args[++i];
-                    }
-                    else if ("-h".equals(arg) && i + 1 < args.length)
-                    {
-                        host = args[++i];
-                    }
-                    else if ("-p".equals(arg) && i + 1 < args.length)
-                    {
-                        port = Integer.parseInt(args[++i]);
-                    }
-                    else if ("-chunk".equals(arg) && i + 1 < args.length)
-                    {
-                        chunkSize = Integer.parseInt(args[++i]);
-                    }
-                    else if ("-timeout".equals(arg) && i + 1 < args.length)
-                    {
-                        timeoutMs = Integer.parseInt(args[++i]);
-                    }
-                    else
-                    {
-                        return null;
-                    }
+                    // Split "recvHost:recvPort" on the LAST colon so IPv6
+                    // addresses like "::1" are handled correctly.
+                    String value = args[++i];
+                    int colonIdx  = value.lastIndexOf(':');
+                    if(colonIdx < 0) return null;          // malformed
+                    host = value.substring(0, colonIdx);
+                    port = Integer.parseInt(value.substring(colonIdx + 1));
                 }
-                catch (NumberFormatException e)
+                else if ("-f".equals(arg) && i + 1 < args.length)
                 {
-                    return null;
+                    filePath = args[++i];
+                }
+                else if ("-chunk".equals(arg) && i + 1 < args.length)
+                {
+                    chunkSize = Integer.parseInt(args[++i]);
+                }
+                else if ("-timeout".equals(arg) && i + 1 < args.length)
+                {
+                    timeoutMs = Integer.parseInt(args[++i]);
+                }
+                else
+                {
+                    return null;    // unrecognised flag
                 }
             }
-
-            if (filePath == null || host == null || port == null || chunkSize <= 0 || timeoutMs <= 0)
+            catch (NumberFormatException e)
             {
                 return null;
             }
-
-            return new Config(filePath, host, port, chunkSize, timeoutMs);
         }
+
+        if (filePath == null || host == null || port == null || chunkSize <= 0 || timeoutMs <= 0)
+        {
+            return null;
+        }
+
+        return new Config(filePath, host, port, chunkSize, timeoutMs);
     }
+}
 }
